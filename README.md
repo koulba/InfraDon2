@@ -1,1 +1,1 @@
-InfraDOn2 - NoSQL at HEIG-VD
+InfraDon2 - NoSQL at HEIG-VD
