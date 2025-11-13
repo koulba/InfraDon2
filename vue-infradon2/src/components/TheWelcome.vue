@@ -28,6 +28,8 @@ const initDatabase = () => {
     console.warn('Echec lors de la connexion à la base de données')
   }
 }
+
+const localDB = new PouchDB('infradon2_local')
  
 // Récupération des données
  
@@ -94,11 +96,20 @@ const saveDocument = (post: any) => {
   });
 };
  
- 
- 
+//Erreur db locale
+const initSync = () => {
+  localDB.sync(storage.value, {
+    live: false,
+    retry: true
+  })
+  .on('complete', () => console.log("Synchronisation initiale réussie"))
+  .on('error', (err) => console.error("Oups, erreur de synchronisation", err));
+}
+
 onMounted(() => {
   console.log('=> Composant initialisé');
   initDatabase()
+  initSync()
   fetchData()
 });
 console.log(postsData.value)
