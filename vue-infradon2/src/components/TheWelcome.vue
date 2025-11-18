@@ -115,24 +115,16 @@ onMounted(() => {
 console.log(postsData.value)
  
 </script>
- 
+
 <template>
-  <h1>On veut de la DATA</h1>
-  <button @click="addDocument">Ajoute un max de data</button>
- 
+  <h1>Fetch Data</h1>
+  <button v-if="!isOffline" @click="isOffline = true">Passer en Offline</button>
+  <button v-else @click="isOffline = false">Revenir en Online</button>
+  <button @click="addDocument">Clique ici</button>
+  <button @click="replicateNow">Synchroniser maintenant</button>
   <article v-for="post in postsData" v-bind:key="(post as any).id">
-    <div v-if="editingId === (post as any)._id">
-      
-      <input v-model="editTitle" type="text" placeholder="Titre" />
-      <button @click="saveDocument(post)">Sauvegarder</button>
-      <button @click="cancelEditing()">Annuler</button>
-    </div>
-    <div v-else>
-      
-      <h2>{{ post.title }}</h2>
-      <p>{{ post.post_content }}</p>
-      <button @click="startEditing(post)">Modifier</button>
-      <button @click="deleteDocument(post)">Supprimer</button>
-    </div>
-  </article>
+  <input v-model="post.title" />
+  <button @click="updateDocument(post)">Sauvegarder</button>
+  <button @click="deleteDocument(post)">Supprimer</button>
+</article>
 </template>
