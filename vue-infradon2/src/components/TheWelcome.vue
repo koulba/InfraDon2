@@ -92,29 +92,6 @@ const updateDocument = (post: any) => {
     });
 };
 
-//Annuler update
-const cancelEditing = () => {
-  editingId.value = null;
-  editTitle.value = '';
-  editContent.value = '';
-};
-
-//Sauvegarder 
-const saveDocument = (post: any) => {
-  storage.value.put({
-    _id: post._id,
-    _rev: post._rev,
-    title: editTitle.value,
-    post_content: editContent.value
-  }).then(() => {
-    console.log("Document mis à jour");
-    cancelEditing();
-    fetchData();
-  }).catch((error: any) => {
-    console.error("Erreur lors de la mise à jour :", error);
-  });
-};
-
  //bouton manuel de réplication
 const replicateNow = () => {
   localDB.replicate.to(remoteDB) 
@@ -166,8 +143,8 @@ console.log(postsData.value)
   <h1>Fetch Data</h1>
   <button v-if="!isOffline" @click="isOffline = true">Passer en Offline</button>
   <button v-else @click="isOffline = false">Revenir en Online</button>
-  <button @click="addDocument">Clique ici</button>
-  <button @click="replicateNow">Synchroniser maintenant</button>
+  <button @click="addDocument">Ajouter un document</button>
+  <button @click="replicateNow">Synchroniser</button>
   <article v-for="post in postsData" v-bind:key="(post as any).id">
   <input v-model="post.title" />
   <button @click="updateDocument(post)">Sauvegarder</button>
