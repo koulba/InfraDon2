@@ -317,9 +317,15 @@ const sortedPosts = computed(() => {
 
 <template>
   <div class="container">
-    <h1>Gestion de Documents NoSQL</h1>
+    <div class="header-with-status">
+      <h1>Gestion de Documents NoSQL</h1>
+      <div class="status-indicator" :class="{ offline: isOffline, online: !isOffline }">
+        <span class="status-dot"></span>
+        <span class="status-text">{{ isOffline ? 'Mode Offline' : 'Mode Online' }}</span>
+      </div>
+    </div>
 
-    
+
     <div class="controls">
       <button v-if="!isOffline" @click="isOffline = true">Passer en Offline</button>
       <button v-else @click="isOffline = false">Revenir en Online</button>
@@ -413,3 +419,69 @@ const sortedPosts = computed(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.header-with-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.status-indicator.online {
+  background-color: #d4edda;
+  color: #155724;
+  border: 2px solid #28a745;
+}
+
+.status-indicator.offline {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 2px solid #dc3545;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.status-indicator.online .status-dot {
+  background-color: #28a745;
+  box-shadow: 0 0 8px #28a745;
+}
+
+.status-indicator.offline .status-dot {
+  background-color: #dc3545;
+  box-shadow: 0 0 8px #dc3545;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.2);
+  }
+}
+
+.status-text {
+  user-select: none;
+}
+</style>
