@@ -17,33 +17,50 @@ declare interface Post {
 }
 
 declare interface Comment {
-  id: string;            
-  content: string;       
-  created_at: string;     
+  id: string;
+  content: string;
+  created_at: string;
 }
 
 declare interface Post {
-  _id?: string;          
-  _rev?: string;          
-  title: string;          
-  post_content: string;   
+  _id?: string;
+  _rev?: string;
+  title: string;
+  post_content: string;
   attributes: {
-    creation_date: any; 
+    creation_date: any;
   };
-  likes: number;          
-  comments: Comment[];  
+  likes: number;
+  comments: Comment[];
 }
 
-// Référence à la base de données
+declare interface User {
+  _id?: string;
+  _rev?: string;
+  username: string;
+  email: string;
+  created_at: string;
+  post_count?: number;
+}
+
+// Référence aux bases de données
 const storage = ref()
+const usersStorage = ref()
 // Données stockées
 const postsData = ref<Post[]>([])
+const usersData = ref<User[]>([])
 
-// déclaration de la DB locale
+// déclaration de la DB locale pour les posts
 const localDB = new PouchDB('infra_don2_local')
 
-// déclaration de la DB distante
+// déclaration de la DB distante pour les posts
 const remoteDB = new PouchDB('http://admin:admin123@localhost:5984/infradon2_db')
+
+// déclaration de la DB locale pour les users
+const localUsersDB = new PouchDB('infra_don2_users_local')
+
+// déclaration de la DB distante pour les users
+const remoteUsersDB = new PouchDB('http://admin:admin123@localhost:5984/infradon2_users_db')
 
 // activer/désactiver le offline
 const isOffline = ref(false)
@@ -61,32 +78,64 @@ const sortOrder = ref<'asc' | 'desc'>('desc')
 
 // initialisation de la Database utilise isOffline pour la base
 const initDatabase = () => {
-  console.log('=> Connexion à la base de données');
+  console.log('=> Connexion aux bases de données');
 
+  // Base de données des posts
   storage.value = isOffline.value ? localDB : remoteDB;
-  console.log("Mode actif :", isOffline.value ? "Offline (localDB)" : "Online (remoteDB)");
+  console.log("Mode actif Posts:", isOffline.value ? "Offline (localDB)" : "Online (remoteDB)");
 
+  // Base de données des users
+  usersStorage.value = isOffline.value ? localUsersDB : remoteUsersDB;
+  console.log("Mode actif Users:", isOffline.value ? "Offline (localUsersDB)" : "Online (remoteUsersDB)");
 
-
-
- // synchronisation automatique locale <-> distante
-   if (!isOffline.value) {
+  // synchronisation automatique locale <-> distante pour les posts
+  if (!isOffline.value) {
     localDB.sync(remoteDB, {
       live: false,
       retry: true
     })
-      .on('complete', () => console.log("Synchronisation initiale réussie"))
-      .on('error', (err) => console.error("Oups, erreur de synchronisation", err));
+      .on('complete', () => console.log("Synchronisation posts réussie"))
+      .on('error', (err) => console.error("Erreur de synchronisation posts", err));
+
+    // synchronisation automatique locale <-> distante pour les users
+    localUsersDB.sync(remoteUsersDB, {
+      live: false,
+      retry: true
+    })
+      .on('complete', () => console.log("Synchronisation users réussie"))
+      .on('error', (err) => console.error("Erreur de synchronisation users", err));
   }
 }
 
-// créa index sur l'attribut 'category'
+// créa index sur l'attribut 'category', 'likes' pour posts et 'username' pour users
 const createIndex = async () => {
   try {
+    // Index pour les posts
     await storage.value.createIndex({
       index: { fields: ['category'] }
     });
-    console.log('=> Index créé sur le champ "category"');
+    console.log('=> Index créé sur le champ "category" (posts)');
+
+    await storage.value.createIndex({
+      index: { fields: ['likes'] }
+    });
+    console.log('=> Index créé sur le champ "likes" (posts)');
+
+    await storage.value.createIndex({
+      index: { fields: ['category', 'likes'] }
+    });
+    console.log('=> Index créé sur les champs "category" et "likes" (posts)');
+
+    // Index pour les users
+    await usersStorage.value.createIndex({
+      index: { fields: ['username'] }
+    });
+    console.log('=> Index créé sur le champ "username" (users)');
+
+    await usersStorage.value.createIndex({
+      index: { fields: ['email'] }
+    });
+    console.log('=> Index créé sur le champ "email" (users)');
   } catch (error) {
     console.error('=> Erreur lors de la création de l\'index :', error);
   }
@@ -109,7 +158,9 @@ const generateTestDocuments = async () => {
         category: category,
         attributes: {
           creation_date: new Date().toISOString()
-        }
+        },
+        likes: Math.floor(Math.random() * 100),
+        comments: []
       });
     }
 
@@ -121,40 +172,133 @@ const generateTestDocuments = async () => {
   }
 }
 
-// Recherche avec filtre sur l'attribut indexé
+// Recherche avec filtre sur l'attribut indexé + tri via DB
 const searchByCategory = async () => {
-  if (!searchCategory.value) {
-    filteredPosts.value = postsData.value;
-    return;
-  }
-
   try {
-    const result = await storage.value.find({
-      selector: {
-        category: searchCategory.value
-      },
-      fields: ['_id', '_rev', 'title', 'post_content', 'category', 'author', 'attributes']
-    });
+    const selector: any = {};
 
+    // Filtrer par catégorie si spécifié
+    if (searchCategory.value) {
+      selector.category = searchCategory.value;
+    }
+
+    // Construire la requête avec tri si nécessaire
+    const query: any = {
+      selector: selector,
+      fields: ['_id', '_rev', 'title', 'post_content', 'category', 'author', 'attributes', 'likes', 'comments']
+    };
+
+    // Ajouter le tri via la DB si activé
+    if (sortBy.value === 'likes') {
+      query.sort = [{ likes: sortOrder.value === 'asc' ? 'asc' : 'desc' }];
+    }
+
+    const result = await storage.value.find(query);
     filteredPosts.value = result.docs;
-    console.log(`=> ${result.docs.length} documents trouvés pour la catégorie "${searchCategory.value}"`);
+
+    const categoryMsg = searchCategory.value ? ` pour la catégorie "${searchCategory.value}"` : '';
+    const sortMsg = sortBy.value ? ` (trié par ${sortBy.value} ${sortOrder.value})` : '';
+    console.log(`=> ${result.docs.length} documents trouvés${categoryMsg}${sortMsg}`);
   } catch (error) {
     console.error('=> Erreur lors de la recherche :', error);
+    // Fallback sur postsData si erreur
+    filteredPosts.value = postsData.value;
   }
 }
  
-// Récupération des données
- 
-   const fetchData = (): any => {
+// Récupération des données posts
+const fetchData = (): any => {
   storage.value
     .allDocs({ include_docs: true })
     .then((result: any) => {
-      console.log('=> Données récupérées :', result.rows)
+      console.log('=> Posts récupérés :', result.rows.length)
       postsData.value = result.rows.map((row: any) => row.doc);
     })
     .catch((error: any) => {
-      console.error('=> Erreur lors de la récupération des données :', error)
+      console.error('=> Erreur lors de la récupération des posts :', error)
     })
+}
+
+// Récupération des données users
+const fetchUsers = (): any => {
+  usersStorage.value
+    .allDocs({ include_docs: true })
+    .then((result: any) => {
+      console.log('=> Users récupérés :', result.rows.length)
+      usersData.value = result.rows.map((row: any) => row.doc);
+    })
+    .catch((error: any) => {
+      console.error('=> Erreur lors de la récupération des users :', error)
+    })
+}
+
+// Générer des users de test
+const generateTestUsers = async () => {
+  if (!usersStorage.value) {
+    console.error('=> Users storage not initialized');
+    return;
+  }
+
+  const usernames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry'];
+
+  try {
+    const docs = [];
+    for (let i = 0; i < usernames.length; i++) {
+      const username = usernames[i];
+      if (!username) continue;
+
+      docs.push({
+        username: username,
+        email: `${username.toLowerCase()}@example.com`,
+        created_at: new Date().toISOString(),
+        post_count: Math.floor(Math.random() * 20)
+      });
+    }
+
+    await usersStorage.value.bulkDocs(docs);
+    console.log(`=> ${docs.length} users générés avec succès`);
+    fetchUsers();
+  } catch (error) {
+    console.error('=> Erreur lors de la génération des users :', error);
+  }
+}
+
+// Ajouter un user
+const addUser = () => {
+  const randomName = `User_${Math.floor(Math.random() * 1000)}`;
+  usersStorage.value.post({
+    username: randomName,
+    email: `${randomName.toLowerCase()}@example.com`,
+    created_at: new Date().toISOString(),
+    post_count: 0
+  }).then(() => {
+    console.log("User ajouté");
+    fetchUsers();
+  }).catch((error: any) => {
+    console.error("Erreur :", error);
+  });
+}
+
+// Supprimer un user
+const deleteUser = (user: any) => {
+  usersStorage.value.remove(user._id, user._rev).then(() => {
+    console.log("User supprimé");
+    fetchUsers();
+  }).catch((error: any) => {
+    console.error("Erreur lors de la suppression :", error);
+  });
+}
+
+// Mettre à jour un user
+const updateUser = (user: any) => {
+  usersStorage.value.put(user)
+    .then(() => {
+      console.log("User mis à jour");
+      fetchUsers();
+    })
+    .catch((error: any) => {
+      console.error("Erreur lors de la mise à jour :", error);
+    });
 }
  //Ajout doc
 const addDocument = () => {
@@ -203,17 +347,27 @@ const replicateNow = () => {
 watch(isOffline, (newVal) => {
   console.log("Mode basculé :", newVal ? "Offline" : "Online");
   storage.value = newVal ? localDB : remoteDB;
+  usersStorage.value = newVal ? localUsersDB : remoteUsersDB;
 
   if (!newVal) {
-    // quand on repasse online, synchroniser
+    // quand on repasse online, synchroniser les posts
     localDB.sync(remoteDB, { live: false, retry: true })
       .on('complete', () => {
-        console.log("Synchronisation après retour online réussie");
+        console.log("Synchronisation posts après retour online réussie");
         fetchData();
       })
-      .on('error', (err) => console.error("Erreur de sync :", err));
+      .on('error', (err) => console.error("Erreur de sync posts :", err));
+
+    // synchroniser les users
+    localUsersDB.sync(remoteUsersDB, { live: false, retry: true })
+      .on('complete', () => {
+        console.log("Synchronisation users après retour online réussie");
+        fetchUsers();
+      })
+      .on('error', (err) => console.error("Erreur de sync users :", err));
   } else {
     fetchData();
+    fetchUsers();
   }
 });
  
@@ -231,8 +385,9 @@ onMounted(async () => {
   console.log('=> Composant initialisé');
   initDatabase()
   initSync()
-  await createIndex() 
+  await createIndex()
   fetchData()
+  fetchUsers()
 });
 
 // Watch pour mettre à jour la recherche en temps réel
@@ -278,38 +433,28 @@ const setSortBy = (type: 'likes' | 'comments') => {
     sortBy.value = type;
     sortOrder.value = 'desc';
   }
+  // Relancer la recherche pour appliquer le tri via DB
+  searchByCategory();
 };
 
 const clearSort = () => {
   sortBy.value = null;
+  // Relancer la recherche sans tri
+  searchByCategory();
 };
 
-// Computed property pour les posts triés
+// Tri par commentaires en JS (car nombre de commentaires non indexable facilement)
 const sortedPosts = computed(() => {
-  const posts = [...filteredPosts.value];
-
-  if (!sortBy.value) {
-    return posts;
+  if (sortBy.value === 'comments') {
+    const posts = [...filteredPosts.value];
+    return posts.sort((a, b) => {
+      const valueA = a.comments?.length || 0;
+      const valueB = b.comments?.length || 0;
+      return sortOrder.value === 'asc' ? valueA - valueB : valueB - valueA;
+    });
   }
-
-  return posts.sort((a, b) => {
-    let valueA = 0;
-    let valueB = 0;
-
-    if (sortBy.value === 'likes') {
-      valueA = a.likes || 0;
-      valueB = b.likes || 0;
-    } else if (sortBy.value === 'comments') {
-      valueA = a.comments?.length || 0;
-      valueB = b.comments?.length || 0;
-    }
-
-    if (sortOrder.value === 'asc') {
-      return valueA - valueB;
-    } else {
-      return valueB - valueA;
-    }
-  });
+  // Sinon, retourner les posts déjà triés par la DB
+  return filteredPosts.value;
 });
 
 
@@ -366,23 +511,45 @@ const sortedPosts = computed(() => {
     </div>
 
     <div class="sort-section">
-      <h2>Tri</h2>
+      <h2>Trier</h2>
       <div class="sort-controls">
         <button
           @click="setSortBy('likes')"
           :class="{ active: sortBy === 'likes' }"
         >
-          Trier par Likes {{ sortBy === 'likes' ? (sortOrder === 'asc' ? '↑' : '↓') : '' }}
+          Trier par likes {{ sortBy === 'likes' ? (sortOrder === 'asc' ? '↑' : '↓') : '' }}
         </button>
         <button
           @click="setSortBy('comments')"
           :class="{ active: sortBy === 'comments' }"
         >
-          Trier par Commentaires {{ sortBy === 'comments' ? (sortOrder === 'asc' ? '↑' : '↓') : '' }}
+          Trier par commentaires {{ sortBy === 'comments' ? (sortOrder === 'asc' ? '↑' : '↓') : '' }}
         </button>
         <button v-if="sortBy" @click="clearSort" class="btn-clear">Réinitialiser</button>
       </div>
     </div>
+
+    <div class="users-section">
+      <h2>Collection utilisateurs ({{ usersData.length }})</h2>
+      <div class="users-controls">
+        <button @click="generateTestUsers">Générer des users</button>
+        <button @click="addUser">Ajouter un user</button>
+      </div>
+      <div class="users-list">
+        <div v-for="user in usersData" :key="user._id" class="user-card">
+          <div class="user-info">
+            <input v-model="user.username" placeholder="Username" class="user-input" />
+            <input v-model="user.email" placeholder="Email" class="user-input" />
+            <span class="user-meta">Posts: {{ user.post_count || 0 }}</span>
+          </div>
+          <div class="user-actions">
+            <button @click="updateUser(user)" class="btn-save">Sauvegarder</button>
+            <button @click="deleteUser(user)" class="btn-delete">Supprimer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="documents-list">
       <h2>Documents ({{ sortedPosts.length }})</h2>
       <article v-for="post in sortedPosts" v-bind:key="(post as any)._id" class="document-card">
@@ -483,5 +650,90 @@ const sortedPosts = computed(() => {
 
 .status-text {
   user-select: none;
+}
+
+/* Users Section */
+.users-section {
+  background: #e6f7ff;
+  padding: 25px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+  border-left: 4px solid #1890ff;
+}
+
+.users-controls {
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.users-controls button {
+  background: #1890ff;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.users-controls button:hover {
+  background: #096dd9;
+}
+
+.users-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+}
+
+.user-card {
+  background: white;
+  border: 2px solid #d9d9d9;
+  border-radius: 8px;
+  padding: 15px;
+  transition: all 0.3s ease;
+}
+
+.user-card:hover {
+  border-color: #1890ff;
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.2);
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.user-input {
+  padding: 8px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+
+.user-input:focus {
+  outline: none;
+  border-color: #1890ff;
+}
+
+.user-meta {
+  color: #8c8c8c;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.user-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.user-actions button {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 0.9rem;
 }
 </style>
