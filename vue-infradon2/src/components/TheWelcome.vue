@@ -32,6 +32,7 @@ declare interface Post {
   };
   likes: number;
   comments: Comment[];
+  image?: string;
 }
 
 declare interface User {
@@ -75,6 +76,9 @@ const numberOfDocs = ref(10)
 // Variables pour le tri
 const sortBy = ref<'likes' | 'comments' | null>(null)
 const sortOrder = ref<'asc' | 'desc'>('desc')
+
+// Variable pour gérer l'affichage des commentaires (clé: postId, valeur: boolean pour voir plus)
+const showAllComments = ref<Record<string, boolean>>({})
 
 // initialisation de la Database utilise isOffline pour la base
 const initDatabase = () => {
@@ -425,6 +429,44 @@ const deleteComment = (post: Post, commentId: string) => {
   updateDocument(post);
 };
 
+// Fonction pour ajouter une image à un post
+const addImage = (post: Post, event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+
+  if (file && file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      post.image = e.target?.result as string;
+      updateDocument(post);
+    };
+    reader.readAsDataURL(file);
+  }
+};
+
+// supp image post
+const removeImage = (post: Post) => {
+  post.image = undefined;
+  updateDocument(post);
+};
+
+//affichage commentaires
+const toggleShowComments = (postId: string) => {
+  showAllComments.value[postId] = !showAllComments.value[postId];
+};
+
+const getDisplayedComments = (post: Post): Comment[] => {
+  if (!post.comments || post.comments.length === 0) return [];
+  const postId = (post as any)._id;
+
+  if (showAllComments.value[postId]) {
+    return post.comments;
+  } else {
+    const lastComment = post.comments[post.comments.length - 1];
+    return lastComment ? [lastComment] : [];
+  }
+};
+
 // Fonctions de tri
 const setSortBy = (type: 'likes' | 'comments') => {
   if (sortBy.value === type) {
@@ -433,7 +475,6 @@ const setSortBy = (type: 'likes' | 'comments') => {
     sortBy.value = type;
     sortOrder.value = 'desc';
   }
-  // Relancer la recherche pour appliquer le tri via DB
   searchByCategory();
 };
 
@@ -453,7 +494,6 @@ const sortedPosts = computed(() => {
       return sortOrder.value === 'asc' ? valueA - valueB : valueB - valueA;
     });
   }
-  // Sinon, retourner les posts déjà triés par la DB
   return filteredPosts.value;
 });
 
@@ -557,27 +597,66 @@ const sortedPosts = computed(() => {
           <input v-model="post.title" class="title-input" />
           <span v-if="post.category" class="category-badge">{{ post.category }}</span>
         </div>
+
+        <div class="image-section">
+          <div v-if="post.image" class="image-container">
+            <img :src="post.image" alt="Image du post" class="post-image" />
+            <button @click="removeImage(post)" class="btn-remove-image">Supprimer l'image</button>
+          </div>
+          <div v-else class="image-upload">
+            <label :for="'image-upload-' + (post as any)._id" class="btn-add-image">
+              Ajouter une image
+            </label>
+            <input
+              :id="'image-upload-' + (post as any)._id"
+              type="file"
+              accept="image/*"
+              @change="addImage(post, $event)"
+              class="file-input"
+            />
+          </div>
+        </div>
+
         <div class="document-actions">
           <button @click="updateDocument(post)" class="btn-save">Sauvegarder</button>
           <button @click="deleteDocument(post)" class="btn-delete">Supprimer</button>
           <button @click="toggleLike(post)">Like ({{ post.likes || 0 }})</button>
 
-     <div>
+     <div class="comments-section">
       <h4>Commentaires ({{ post.comments?.length || 0 }})</h4>
-      <ul v-if="post.comments?.length">
-        <li v-for="comment in post.comments" :key="comment.id">
-          {{ comment.content }}
-          <button @click="deleteComment(post, comment.id)">X</button>
-        </li>
-      </ul>
 
-      <div>
-        <input :id="'comment-input-' + (post as any)._id" placeholder="Ajouter un commentaire" />
+      <div v-if="post.comments?.length" class="comments-container">
+        <ul class="comments-list">
+          <li v-for="comment in getDisplayedComments(post)" :key="comment.id" class="comment-item">
+            <div class="comment-content">
+              <span class="comment-text">{{ comment.content }}</span>
+              <span class="comment-date">{{ new Date(comment.created_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) }}</span>
+            </div>
+            <button @click="deleteComment(post, comment.id)" class="btn-delete-comment">X</button>
+          </li>
+        </ul>
+
+        <button
+          v-if="post.comments.length > 1"
+          @click="toggleShowComments((post as any)._id)"
+          class="btn-toggle-comments"
+        >
+          {{ showAllComments[(post as any)._id] ? 'Voir moins' : `Voir plus (${post.comments.length - 1} autres)` }}
+        </button>
+      </div>
+
+      <div class="add-comment-section">
+        <input
+          :id="'comment-input-' + (post as any)._id"
+          placeholder="Ajouter un commentaire"
+          class="comment-input"
+        />
         <button
           @click="
             addComment(post, (($event.target as HTMLElement).previousElementSibling as HTMLInputElement)?.value || '');
             ((($event.target as HTMLElement).previousElementSibling as HTMLInputElement).value = '');
           "
+          class="btn-add-comment"
         >Ajouter</button>
       </div>
     </div>
@@ -586,154 +665,3 @@ const sortedPosts = computed(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.header-with-status {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-  gap: 15px;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: 20px;
-  font-weight: 600;
-  font-size: 14px;
-  transition: all 0.3s ease;
-}
-
-.status-indicator.online {
-  background-color: #d4edda;
-  color: #155724;
-  border: 2px solid #28a745;
-}
-
-.status-indicator.offline {
-  background-color: #f8d7da;
-  color: #721c24;
-  border: 2px solid #dc3545;
-}
-
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.status-indicator.online .status-dot {
-  background-color: #28a745;
-  box-shadow: 0 0 8px #28a745;
-}
-
-.status-indicator.offline .status-dot {
-  background-color: #dc3545;
-  box-shadow: 0 0 8px #dc3545;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(1.2);
-  }
-}
-
-.status-text {
-  user-select: none;
-}
-
-/* Users Section */
-.users-section {
-  background: #e6f7ff;
-  padding: 25px;
-  border-radius: 12px;
-  margin-bottom: 30px;
-  border-left: 4px solid #1890ff;
-}
-
-.users-controls {
-  display: flex;
-  gap: 15px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-}
-
-.users-controls button {
-  background: #1890ff;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.users-controls button:hover {
-  background: #096dd9;
-}
-
-.users-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 15px;
-}
-
-.user-card {
-  background: white;
-  border: 2px solid #d9d9d9;
-  border-radius: 8px;
-  padding: 15px;
-  transition: all 0.3s ease;
-}
-
-.user-card:hover {
-  border-color: #1890ff;
-  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.2);
-}
-
-.user-info {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 15px;
-}
-
-.user-input {
-  padding: 8px 12px;
-  border: 1px solid #d9d9d9;
-  border-radius: 4px;
-  font-size: 0.95rem;
-}
-
-.user-input:focus {
-  outline: none;
-  border-color: #1890ff;
-}
-
-.user-meta {
-  color: #8c8c8c;
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.user-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.user-actions button {
-  flex: 1;
-  padding: 8px 12px;
-  font-size: 0.9rem;
-}
-</style>
